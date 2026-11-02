@@ -1,0 +1,27 @@
+# Do not check in private model answers, labels, keys or real location data.
+.env
+.env.*
+*.key
+*.pem
+*.agekey
+*.secret
+*.token
+*.p12
+*.pfx
+*.gpx
+*.GPX
+*.kml
+*.KML
+encrypted/
+private/
+raw/
+data/raw/
+data/private/
+cohort/private*
+cohort/labels*
+cohort/answer*
+cohort/oracle*
+cohort/witness*
+*.plaintext
+*.plaintext.*
+!cohort/public-packet.json

@@ -1,0 +1,132 @@
+name: Habu sealed synthetic Qwen7B one-shot evaluation
+
+# TEMPLATE ONLY. Install after the separate public repo exists.
+# Manual activation only AFTER an independent custodian has sealed fresh
+# examples, frozen labels and approved one public packet SHA.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_packet_sha256:
+        description: "SHA-256 of custodian-approved PUBLIC packet bytes"
+        required: true
+        type: string
+      expected_freeze_sha256:
+        description: "SHA-256 of frozen model/prompt/scorer/executor manifest"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: habu-eval-one-at-a-time
+  cancel-in-progress: false
+
+jobs:
+  synthetic-eval:
+    if: >-
+      github.repository == 'haji84/habuAI-eval-runner' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      OLLAMA_HOST: "127.0.0.1:11434"
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: "1m"
+      OLLAMA_MODELS: "/tmp/habu-qwen7b-sealed-models"
+      MODEL: "qwen2.5-coder:7b"
+      EXPECTED_PACKET_SHA: "${{ inputs.expected_packet_sha256 }}"
+      EXPECTED_FREEZE_SHA: "${{ inputs.expected_freeze_sha256 }}"
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout public case packet without retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+
+      - name: Load Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: No-secret contract test and independent packet preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "haji84/habuAI-eval-runner"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          python run_public_eval.py \
+            --packet cohort/public-packet.json \
+            --expected-packet-sha256 "$EXPECTED_PACKET_SHA" \
+            --expected-freeze-sha256 "$EXPECTED_FREEZE_SHA"
+          free -m
+          df -h /
+          avail_bytes="$(df --output=avail -B1 / | tail -n 1 | tr -d ' ')"
+          avail_mem_kib="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)"
+          test "$avail_bytes" -ge 7000000000
+          test "$avail_mem_kib" -ge 7000000
+          echo "PUBLIC_ONLY_PREFLIGHT_PASS_NOT_MODEL_QUALITY"
+
+      - name: Install SHA-256-pinned local Ollama CPU runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 2 --connect-timeout 15 --max-time 240 -fsSL \
+            https://github.com/ollama/ollama/releases/download/v0.40.11/install.sh \
+            -o "$RUNNER_TEMP/ollama-install.sh"
+          echo "25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f  $RUNNER_TEMP/ollama-install.sh" | sha256sum -c -
+          OLLAMA_VERSION=0.40.11 sh "$RUNNER_TEMP/ollama-install.sh"
+          mkdir -p -m 700 "$OLLAMA_MODELS"
+          command -v ollama
+
+      - name: Launch localhost-only 7B and verify exact weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop ollama 2>/dev/null || true
+          nohup ollama serve > "$RUNNER_TEMP/ollama-service.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:11434/api/tags >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = "1"
+          timeout --kill-after=10s 900s ollama pull "$MODEL"
+          model_weight_sha="60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463"
+          model_blob="$OLLAMA_MODELS/blobs/sha256-$model_weight_sha"
+          test -f "$model_blob"
+          test "$(stat -c %s "$model_blob")" = "4683074048"
+          echo "$model_weight_sha  $model_blob" | sha256sum -c -
+          echo "EXACT_SYNTHETIC_QWEN7B_MODEL_VERIFIED"
+
+      - name: Execute model on public synthetic examples only
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --kill-after=10s 4400s \
+            python -u run_public_eval.py --execute \
+              --packet cohort/public-packet.json \
+              --expected-packet-sha256 "$EXPECTED_PACKET_SHA" \
+              --expected-freeze-sha256 "$EXPECTED_FREEZE_SHA"
+
+      - name: Enforce independent result qualification hold
+        if: always()
+        shell: bash
+        run: |
+          echo "EVAL_PUBLIC_RESULT_NEEDS_INDEPENDENT_CUSTODIAN_REVIEW"
+          echo "NO_PRIVATE_LABELS_OR_DECRYPTION_KEYS_ACCESSIBLE"
+          echo "NO_RELEASE_NO_MAIN_MERGE_NO_MODEL_PROMOTION"
