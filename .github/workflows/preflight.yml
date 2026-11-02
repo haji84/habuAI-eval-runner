@@ -9,6 +9,7 @@ on:
       - 'public_packet_guard.py'
       - 'run_public_eval.py'
       - 'tests/**'
+      - 'custodian/**'
       - '.github/workflows/preflight.yml'
   workflow_dispatch:
 
@@ -35,7 +36,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "haji84/habuAI-eval-runner"
+          python -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
           python -m unittest discover -s tests -p 'test_*.py' -v
-          python -m py_compile public_packet_guard.py run_public_eval.py
+          python -m py_compile public_packet_guard.py run_public_eval.py custodian/keykeeper.py
           echo "OFFLINE_PUBLIC_EVAL_CONTRACTS_PASS_NOT_QWEN_QUALITY"
           echo "NO_PRIVATE_ACTIONS_MINUTES_NO_QWEN_MODEL_CALL"
