@@ -1,0 +1,41 @@
+name: Habu public evaluation contract preflight (no model)
+
+# Ordinary code changes run only a tiny mock-based preflight.
+# Expensive Qwen evaluation remains manually triggered via evaluate.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public_packet_guard.py'
+      - 'run_public_eval.py'
+      - 'tests/**'
+      - '.github/workflows/preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-only:
+    if: github.repository == 'haji84/habuAI-eval-runner'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run synthetic-only offline contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "haji84/habuAI-eval-runner"
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          python -m py_compile public_packet_guard.py run_public_eval.py
+          echo "OFFLINE_PUBLIC_EVAL_CONTRACTS_PASS_NOT_QWEN_QUALITY"
+          echo "NO_PRIVATE_ACTIONS_MINUTES_NO_QWEN_MODEL_CALL"
